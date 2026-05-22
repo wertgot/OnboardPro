@@ -1,21 +1,25 @@
-# OnboardPro — Django REST API
+# OnboardPro
 
-Бэкенд системы онбординга сотрудников. Только API, SQLite, без Docker.
+Система онбординга сотрудников: Django REST API + React + Docker.
 
-## Быстрый старт
+## Docker (рекомендуется)
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py seed_demo
-python manage.py runserver
+cp .env.example .env   # при необходимости отредактируйте
+docker compose up --build
 ```
 
-API: `http://127.0.0.1:8000/`
+Откройте **http://localhost:8080** — Nginx раздаёт фронтенд и проксирует API.
 
-## Демо-учётные записи
+> Порт 8080 выбран, чтобы не конфликтовать с другим сервисом на :80 (IIS/WSL и т.п.).
+
+| Сервис   | Назначение                          |
+|----------|-------------------------------------|
+| nginx    | React static + reverse proxy (порт 80)|
+| django   | API + Gunicorn                      |
+| postgres | PostgreSQL 16                       |
+
+Демо-аккаунты (создаются при старте `django`):
 
 | Логин | Пароль | Роль |
 |-------|--------|------|
@@ -23,61 +27,55 @@ API: `http://127.0.0.1:8000/`
 | `employee@company.com` | `demo1234` | Employee |
 | `admin@demo.com` | `demo1234` | Admin |
 
-## JWT
+## Локальная разработка без Docker
 
-```http
-POST /api/v1/auth/token/
-{"username": "hr@company.com", "password": "demo1234"}
+### Backend (SQLite)
 
-POST /api/v1/auth/token/refresh/
-{"refresh": "<refresh_token>"}
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_demo
+python manage.py runserver
 ```
 
-Заголовок: `Authorization: Bearer <access_token>`
+### Frontend
 
-## Основные эндпоинты
-
-| Метод | URL | Описание |
-|-------|-----|----------|
-| GET/POST | `/api/v1/programs/` | Программы онбординга |
-| GET/POST | `/api/v1/instances/` | Экземпляры онбординга |
-| GET | `/api/v1/instances/{id}/` | BFF: детали с этапами и задачами |
-| PATCH | `/api/v1/instances/{id}/tasks/{tid}/` | Отметить задачу выполненной |
-| GET/POST | `/api/v1/documents/` | Документы |
-| POST | `/api/v1/documents/{id}/sign/` | Подписать документ |
-| GET | `/api/v1/documents/{id}/file/` | Скачать файл |
-| GET/POST | `/api/v1/quizzes/` | Тесты |
-| POST | `/api/v1/quizzes/{id}/attempt/` | Пройти тест |
-| GET | `/api/v1/analytics/` | Аналитика (HR/Admin) |
-| GET/PATCH | `/api/v1/users/` | Пользователи |
-| GET | `/mobile/v1/my-tasks/?status=pending` | Задачи (мобайл) |
-| PATCH | `/mobile/v1/my-tasks/{id}/` | `{"done": true}` |
-
-Регистрация новой компании (без авторизации):
-
-```http
-POST /api/v1/auth/register/
-{
-  "company_name": "Acme",
-  "company_slug": "acme",
-  "username": "owner",
-  "email": "owner@acme.com",
-  "password": "secret"
-}
+```bash
+cd frontend
+npm install
+npm run dev
 ```
 
-## Структура приложений
+Фронтенд: **http://localhost:5173** (прокси `/api` → Django :8000).
 
-- `accounts` — пользователи, JWT, мультиарендность (Company)
-- `programs` — программы, этапы, задачи
-- `instances` — экземпляры онбординга, прогресс
-- `documents` — загрузка и подписание файлов
-- `quizzes` — тесты и попытки
-- `notifications` — email-уведомления
-- `analytics` — сводки для HR
-- `web_bff` — агрегированный ответ для веб-клиента
-- `mobile_bff` — компактный API для мобильного клиента
+## Архитектура
 
-## База данных
+```
+┌─────────────┐     ┌─────────────┐     ┌──────────────┐
+│   Browser   │────▶│    nginx    │────▶│    django    │
+│  React SPA  │     │  :80        │     │  Gunicorn    │
+└─────────────┘     └─────────────┘     └──────┬───────┘
+                        /api, /mobile          │
+                                                 ▼
+                                          ┌──────────────┐
+                                          │  PostgreSQL  │
+                                          └──────────────┘
+```
 
-SQLite: `db.sqlite3` в корне проекта.
+## API
+
+- `POST /api/v1/auth/token/` — JWT
+- `GET /api/v1/programs/` — программы
+- `GET /api/v1/instances/{id}/` — BFF с этапами и задачами
+- `PATCH /api/v1/instances/{id}/tasks/{tid}/` — отметить задачу
+- `GET /api/v1/analytics/` — аналитика (HR)
+- `GET /mobile/v1/my-tasks/` — мобильный BFF
+
+## Структура
+
+- `accounts`, `programs`, `instances`, … — Django-приложения
+- `frontend/` — React (Vite + TypeScript)
+- `nginx/` — конфиг и multi-stage Dockerfile (React build + nginx)
+- `docker-compose.yml` — оркестрация

@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-onboardpro}
+      POSTGRES_USER: ${POSTGRES_USER:-onboardpro}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-onboardpro}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - onboardpro-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-onboardpro}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  django:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-onboardpro}:${POSTGRES_PASSWORD:-onboardpro}@postgres:5432/${POSTGRES_DB:-onboardpro}
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - onboardpro-net
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - '8080:80'
+    depends_on:
+      django:
+        condition: service_started
+    networks:
+      - onboardpro-net
+
+volumes:
+  postgres_data:
+  media_data:
+
+networks:
+  onboardpro-net:
+    driver: bridge
